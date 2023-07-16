@@ -2,7 +2,7 @@ from django.shortcuts import render
 from django.http import HttpResponseRedirect
 
 # <HINT> Import any new Models here
-from .models import Course, Enrollment
+from .models import Course, Enrollment, Question, Choice, Submission
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
@@ -13,7 +13,6 @@ import logging
 # Get an instance of a logger
 logger = logging.getLogger(__name__)
 # Create your views here.
-from .models import Course, Enrollment, Question, Choice, Submission
 
 
 def registration_request(request):
@@ -122,10 +121,27 @@ def enroll(request, course_id):
 # Add each selected choice object to the submission object
 # Redirect to show_exam_result with the submission id
 def submit(request, course_id):
-    pass
+    course = get_object_or_404(Course, pk=course_id)
+    user = request.user
+    enrollment = Enrollment.objects.get(user=user, course=course)
+    submission = Submission.objects.create(enrollment=enrollment)
+
+    for subID in extract_answers(request):
+        submission.choices.add(subID)
+    return HttpResponseRedirect(
+        reverse(
+            viewname="onlinecourse:show_exam_result",
+            args=(
+                course_id,
+                submission.id,
+            ),
+        )
+    )
 
 
 # <HINT> A example method to collect the selected choices from the exam form from the request object
+
+
 def extract_answers(request):
     submitted_anwsers = []
     for key in request.POST:
@@ -143,4 +159,35 @@ def extract_answers(request):
 # For each selected choice, check if it is a correct answer or not
 # Calculate the total score
 def show_exam_result(request, course_id, submission_id):
-    pass
+    context = {}
+    course = Course.objects.get(id=course_id)
+    submission = Submission.objects.get(id=submission_id)
+
+    totalGrade = 0
+    maxGrade = 0
+
+    context["course"] = course
+    context["submission"] = submission
+
+    questions = []
+    for choice in submission.choices.all():
+        if choice.correct:
+            totalGrade += choice.question.grade
+        maxGrade += choice.question.grade
+        if choice.question not in questions:
+            questions.append(choice.question)
+
+    allChoices = Choice.objects.filter(question__in=questions)
+
+    context["grade"] = totalGrade / maxGrade * 100
+
+    for choice in allChoices:
+        choice.selected = False
+        print(choice.selected)
+        if choice in submission.choices.all():
+            choice.selected = True
+            print(choice.selected)
+
+    context["questions"] = questions
+    context["submission"] = submission.choices.all()
+    return render(request, "onlinecourse/exam_result_bootstrap.html", context)
